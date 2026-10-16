@@ -65,8 +65,17 @@ COLLECTIONS = {
 }
 HIDDEN_COLLECTIONS = {"def", "mch", "arm_ik_l", "arm_ik_r", "leg_fk_l", "leg_fk_r"}
 
-# Center yellow, left blue, right red, face green.
-COLORS = {"c": "THEME09", "l": "THEME04", "r": "THEME01", "face": "THEME03"}
+# Custom bone colors (normal, select, active), matching the HamsterChef rig:
+# center cyan, left orange, right periwinkle, face mint.
+COLORS = {
+    "c": ((0.204, 0.859, 0.859), (0.604, 1.0, 1.0), (0.706, 1.0, 1.0)),
+    "l": ((0.941, 0.506, 0.0), (1.0, 0.906, 0.4), (1.0, 1.0, 0.502)),
+    "r": ((0.604, 0.667, 1.0), (0.804, 0.867, 1.0), (1.0, 1.0, 1.0)),
+    "face": ((0.35, 0.9, 0.6), (0.65, 1.0, 0.8), (0.8, 1.0, 0.9)),
+}
+# Custom shape line widths: body controls thick, small face/finger controls thinner.
+WIRE_WIDTH = 2.5
+WIRE_WIDTH_SMALL = 1.5
 
 FINGER_CHAINS = (
     ("thumb_01", "thumb_02", "thumb_03"),
@@ -219,8 +228,49 @@ def ring(c, axis, r, seg=24, hint=None):
 
 
 def ellipse(c, u, v, ru, rv, seg=32):
-    return ([c + u * ru * math.cos(2 * math.pi * i / seg) + v * rv * math.sin(2 * math.pi * i / seg)
-             for i in range(seg)], True)
+    return superellipse(c, u, v, ru, rv, 2.0, seg)
+
+
+def superellipse(c, u, v, ru, rv, n=4.0, seg=48):
+    """Closed loop; n = 2 is an ellipse, larger n squares the corners off."""
+    pts = []
+    for i in range(seg):
+        a = 2 * math.pi * i / seg
+        ca, sa = math.cos(a), math.sin(a)
+        x = math.copysign(abs(ca) ** (2 / n), ca)
+        y = math.copysign(abs(sa) ** (2 / n), sa)
+        pts.append(c + u * (ru * x) + v * (rv * y))
+    return (pts, True)
+
+
+def stadium(c, u, v, half, r, seg=12):
+    """Pill shape along u: two half circles joined by straight sides."""
+    pts = []
+    for end, a0 in ((c + u * half, -math.pi / 2), (c - u * half, math.pi / 2)):
+        pts.extend(end + (u * math.cos(a0 + math.pi * i / seg) + v * math.sin(a0 + math.pi * i / seg)) * r
+                   for i in range(seg + 1))
+    return (pts, True)
+
+
+def crosshair(c, u, v, r, seg=24):
+    k = 0.55 * r
+    return [arc(c, u, v, r, seg=seg), ([c - u * k, c + u * k], False), ([c - v * k, c + v * k], False)]
+
+
+def arrowhead(tip, d, side, size):
+    """Triangle outline pointing along d, flat in the d/side plane."""
+    base = tip - d * size
+    return ([base + side * (size * 0.6), tip, base - side * (size * 0.6)], True)
+
+
+def curved_arrow(c, u, v, r, a0, a1, size, seg=16):
+    """Arc from angle a0 to a1 with an arrowhead off each end."""
+    loops = [(arc(c, u, v, r, a0, a1, seg)[0], False)]
+    for a, sign in ((a0, -1.0), (a1, 1.0)):
+        radial = u * math.cos(a) + v * math.sin(a)
+        tangent = (v * math.cos(a) - u * math.sin(a)) * sign
+        loops.append(arrowhead(c + radial * r + tangent * size, tangent, radial, size))
+    return loops
 
 
 def box(c, x, y, z, hx, hy, hz):
@@ -234,11 +284,10 @@ def box(c, x, y, z, hx, hy, hz):
     return loops
 
 
-def diamond(c, r, frame):
-    loops = []
-    for u, v in ((frame.left, frame.up), (frame.left, frame.fwd), (frame.fwd, frame.up)):
-        loops.append(arc(c, u, v, r, seg=4))
-    return loops
+def gimbal(c, r, frame, seg=24):
+    """Three orthogonal circles: a wire ball."""
+    return [arc(c, u, v, r, seg=seg)
+            for u, v in ((frame.left, frame.up), (frame.left, frame.fwd), (frame.fwd, frame.up))]
 
 
 # ---------------------------------------------------------------------------
@@ -324,17 +373,32 @@ class Builder:
         dists.sort()
         return dists[int(len(dists) * 0.9)] * scale
 
-    def body_ellipse(self, groups, c, band, su=1.2, sv=1.3, fallback=0.15):
+    def body_ellipse(self, groups, c, band, su=1.2, sv=1.3, fallback=0.15, n=2.0):
+        """Horizontal loop around the mesh cross-section; n > 2 gives a rounded rectangle."""
         F = self.F
         pts = [p for g in groups for p in self.points.get(g, ()) if abs((p - c).dot(F.up)) <= band]
         if len(pts) < 8:
-            return ellipse(c, F.left, F.fwd, fallback * F.m, fallback * F.m * 0.7)
+            return superellipse(c, F.left, F.fwd, fallback * F.m, fallback * F.m * 0.7, n)
         ls = sorted((p - c).dot(F.left) for p in pts)
         fs = sorted((p - c).dot(F.fwd) for p in pts)
         lo_l, hi_l = ls[int(len(ls) * 0.03)], ls[int(len(ls) * 0.97)]
         lo_f, hi_f = fs[int(len(fs) * 0.03)], fs[int(len(fs) * 0.97)]
         center = c + F.left * ((lo_l + hi_l) / 2) + F.fwd * ((lo_f + hi_f) / 2)
-        return ellipse(center, F.left, F.fwd, (hi_l - lo_l) / 2 * su, (hi_f - lo_f) / 2 * sv)
+        return superellipse(center, F.left, F.fwd, (hi_l - lo_l) / 2 * su, (hi_f - lo_f) / 2 * sv, n)
+
+    def limb_box(self, name, groups, head, tail, z_hint, scale=1.2, span=0.8, fallback=0.05):
+        """Box around the middle of a limb segment, sized from the mesh."""
+        axis = tail - head
+        c = head.lerp(tail, 0.5)
+        r = self.ring_radius(groups, c, axis, axis.length * 0.3, scale, fallback)
+        y = axis.normalized()
+        z = perp(z_hint, y)
+        self.widgets[name] = box(c, y.cross(z), y, z, r, axis.length * span / 2, r)
+
+    def top(self, groups, c, fallback):
+        """Highest mesh point of groups above c, along world up."""
+        heights = [(p - c).dot(self.F.up) for g in groups for p in self.points.get(g, ())]
+        return max(heights) if heights else fallback * self.F.m
 
     def limb_ring(self, name, groups, head, tail, t=0.5, band=0.3, scale=1.3, fallback=0.05, hint=None):
         axis = tail - head
@@ -349,23 +413,30 @@ class Builder:
 
         root = H("root")
         self.bone("CTRL_root", root, root + F.fwd * 0.35 * m, roll_to=F.up, coll="torso", color="c")
-        tip = root + F.fwd * 0.62 * m
-        self.widgets["CTRL_root"] = [
-            ring(root, F.up, 0.45 * m, seg=48, hint=F.left),
-            ([root + F.fwd * 0.47 * m + F.left * 0.07 * m, tip, root + F.fwd * 0.47 * m - F.left * 0.07 * m], True),
-        ]
+        # Double ring with an arrow on each side, the forward one larger.
+        self.widgets["CTRL_root"] = [ring(root, F.up, 0.45 * m, seg=64, hint=F.left),
+                                     ring(root, F.up, 0.42 * m, seg=64, hint=F.left)]
+        for d, size in ((F.fwd, 0.09), (-F.fwd, 0.05), (F.left, 0.05), (-F.left, 0.05)):
+            self.widgets["CTRL_root"].append(
+                arrowhead(root + d * (0.47 + size) * m, d, F.up.cross(d), size * m))
         self.tgt("root", "CTRL_root")
 
         pel = H("pelvis")
         self.bone("CTRL_torso", pel, pel + F.up * 0.18 * m, parent="CTRL_root", roll_to=F.fwd,
                   coll="torso", color="c")
-        self.widgets["CTRL_torso"] = [
-            self.body_ellipse(("pelvis", "spine_01", "spine_02"), pel + F.up * 0.03 * m, 0.05 * m, 1.45, 1.6)]
+        torso_c = pel + F.up * 0.03 * m
+        plate = self.body_ellipse(("pelvis", "spine_01", "spine_02"), torso_c, 0.05 * m, 1.5, 1.7, n=6.0)
+        self.widgets["CTRL_torso"] = [plate]
+        for d in (F.left, -F.left):
+            reach = max((p - torso_c).dot(d) for p in plate[0])
+            self.widgets["CTRL_torso"].append(arrowhead(torso_c + d * (reach + 0.06 * m), d, F.fwd, 0.04 * m))
 
         self.bone("CTRL_hips", pel, pel - F.up * 0.15 * m, parent="CTRL_torso", roll_to=F.fwd,
                   coll="torso", color="c", lock_loc=True)
+        hips_c = pel - F.up * 0.06 * m
         self.widgets["CTRL_hips"] = [
-            self.body_ellipse(("pelvis", "thigh_l", "thigh_r"), pel - F.up * 0.06 * m, 0.04 * m, 1.2, 1.3)]
+            self.body_ellipse(("pelvis", "thigh_l", "thigh_r"), hips_c, 0.04 * m, 1.2, 1.3),
+            self.body_ellipse(("pelvis", "thigh_l", "thigh_r"), hips_c - F.up * 0.02 * m, 0.04 * m, 1.12, 1.2)]
         self.tgt("pelvis", "CTRL_hips")
 
         chain = ("spine_01", "spine_02", "spine_03", "spine_04", "spine_05", "neck_01", "neck_02", "head")
@@ -374,17 +445,22 @@ class Builder:
             ctrl = "CTRL_" + name
             h, t = H(name), H(nxt)
             self.bone(ctrl, h, t, parent=parent, roll_to=F.fwd, coll="spine", color="c", lock_loc=True)
+            # Rounded plates: square-ish for the spine, softer for the neck.
             if name.startswith("spine"):
-                self.widgets[ctrl] = [self.body_ellipse((name,), h.lerp(t, 0.5), 0.035 * m, 1.15, 1.25)]
+                self.widgets[ctrl] = [self.body_ellipse((name,), h.lerp(t, 0.5), 0.035 * m, 1.2, 1.3, n=4.0)]
             else:
-                self.widgets[ctrl] = [self.body_ellipse(("neck_01", "neck_02"), h.lerp(t, 0.5), 0.02 * m, 1.35, 1.35)]
+                self.widgets[ctrl] = [self.body_ellipse(("neck_01", "neck_02"), h.lerp(t, 0.5), 0.02 * m,
+                                                        1.4, 1.4, n=3.0)]
             self.tgt(name, ctrl)
             parent = ctrl
 
         head = H("head")
         self.bone("CTRL_head", head, head + F.up * 0.18 * m, parent="CTRL_neck_02", roll_to=F.fwd,
                   coll="spine", color="c", lock_loc=True)
-        self.widgets["CTRL_head"] = [self.body_ellipse(("face",), head + F.up * 0.06 * m, 0.02 * m, 1.3, 1.3)]
+        # Ring around the skull plus a halo above the crown.
+        crown = head + F.up * (self.top(("head", "face"), head, 0.16) + 0.025 * m)
+        self.widgets["CTRL_head"] = [self.body_ellipse(("face",), head + F.up * 0.06 * m, 0.02 * m, 1.3, 1.3, n=3.0),
+                                     ring(crown, F.up, 0.08 * m, seg=32, hint=F.left)]
         self.space_switch("CTRL_head", "MCH_head_%s", "CTRL_torso", "head_follow")
         self.tgt("head", "CTRL_head")
 
@@ -396,15 +472,18 @@ class Builder:
         clav = "CTRL_clavicle_" + s
         a, b = H("clavicle_" + s), H("upperarm_" + s)
         self.bone(clav, a, b, parent="CTRL_spine_05", roll_to=F.up, coll="spine", color=s, lock_loc=True)
-        self.widgets[clav] = [([a.lerp(b, 0.15 + 0.85 * i / 10) + F.up * (0.05 + 0.015 * math.sin(math.pi * i / 10)) * m
-                                for i in range(11)], False)]
+        # Curved paddle over the shoulder: an arc ending in a flat knob.
+        lift = [a.lerp(b, 0.15 + 0.85 * i / 10) + F.up * (0.05 + 0.015 * math.sin(math.pi * i / 10)) * m
+                for i in range(11)]
+        self.widgets[clav] = [(lift, False), ring(lift[-1] + F.up * 0.004 * m, F.up, 0.02 * m, seg=16)]
         self.tgt("clavicle_" + s, clav)
 
         breast = "CTRL_breast_" + s
         bh = H("breast_" + s)
         self.bone(breast, bh, bh + F.fwd * 0.08 * m, parent="CTRL_spine_05", roll_to=F.up, coll="spine", color=s)
         front = max([(p - bh).dot(F.fwd) for p in self.points.get("breast_" + s, ())] or [0.0])
-        self.widgets[breast] = [arc(bh + F.fwd * (front + 0.015 * m), F.left, F.up, 0.045 * m)]
+        bc = bh + F.fwd * (front + 0.015 * m)
+        self.widgets[breast] = [arc(bc, F.left, F.up, 0.045 * m), arc(bc, F.left, F.up, 0.012 * m, seg=12)]
         self.tgt("breast_" + s, breast)
 
         # Arm chain geometry: shoulder, elbow, wrist, middle knuckle.
@@ -421,14 +500,26 @@ class Builder:
             "hand": ("hand_" + s,),
         }
 
-        # FK.
+        # Hand plate: palm width from the knuckle spread, thickness fixed.
+        hy = (M - W).normalized()
+        hz = perp(dorsal, hy)
+        palm = (H("index_01_" + s) - H("pinky_01_" + s)).length
+
+        def hand_box(scale):
+            return box(W.lerp(M, 0.5), hy.cross(hz), hy, hz,
+                       (palm * 0.65 + 0.01 * m) * scale, (M - W).length * 0.6 * scale, 0.025 * m * scale)
+
+        # FK: boxes around each segment.
         parent = clav
         for part in ("upperarm", "lowerarm", "hand"):
             h, t, r = geo[part]
             ctrl = "CTRL_%s_fk_%s" % (part, s)
             self.bone(ctrl, h, t, parent=parent, roll_to=r, coll="arm_fk_" + s, color=s,
                       connect=part != "upperarm", lock_loc=True)
-            self.limb_ring(ctrl, rings[part], h, t, t=0.35 if part == "hand" else 0.5, scale=1.35)
+            if part == "hand":
+                self.widgets[ctrl] = hand_box(1.0)
+            else:
+                self.limb_box(ctrl, rings[part], h, t, r, scale=1.1, span=0.7)
             parent = ctrl
         self.space_switch("CTRL_upperarm_fk_" + s, "MCH_upperarm_fk_%s_" + s, "CTRL_torso", "arm_fk_follow_" + s)
 
@@ -437,13 +528,12 @@ class Builder:
         self.bone("MCH_lowerarm_ik_" + s, E, W, parent="MCH_upperarm_ik_" + s, roll_to=pole, connect=True)
         hand_ik = "CTRL_hand_ik_" + s
         self.bone(hand_ik, W, M, parent="CTRL_root", roll_to=dorsal, coll="arm_ik_" + s, color=s)
-        y = (M - W).normalized()
-        z = perp(dorsal, y)
-        self.widgets[hand_ik] = box(W.lerp(M, 0.45), y.cross(z), y, z, 0.05 * m, (M - W).length * 0.8, 0.03 * m)
+        wrist_r = self.ring_radius(rings["lowerarm"], W, W - E, 0.02 * m, 1.6, 0.04)
+        self.widgets[hand_ik] = hand_box(1.3) + [ring(W, W - E, wrist_r, seg=32, hint=dorsal)]
         elbow = "CTRL_elbow_pole_" + s
         p = E + pole * 0.35 * m
         self.bone(elbow, p, p + pole * 0.05 * m, parent="CTRL_root", roll_to=F.up, coll="arm_ik_" + s, color=s)
-        self.widgets[elbow] = diamond(p, 0.03 * m, F)
+        self.widgets[elbow] = gimbal(p, 0.03 * m, F)
         self.space_switch(elbow, "MCH_elbow_pole_%s_" + s, hand_ik, "pole_follow_arm_" + s, 'COPY_TRANSFORMS')
         self.ik.append(("MCH_lowerarm_ik_" + s, hand_ik, elbow))
 
@@ -511,7 +601,11 @@ class Builder:
                 self.bone(ctrl, h, t, parent=parent, roll_to=z, coll="fingers_" + s, color=s,
                           connect=i > 0, rot='XYZ', lock_loc=True)
                 if "metacarpal" in name:
-                    self.widgets[ctrl] = [ring(h.lerp(t, 0.5) + perp(z, y) * 0.012 * m, z, 0.005 * m, seg=10)]
+                    # Pin standing off the back of the hand.
+                    base = h.lerp(t, 0.5)
+                    pin = base + perp(z, y) * 0.022 * m
+                    self.widgets[ctrl] = [([base + perp(z, y) * 0.006 * m, pin - perp(z, y) * 0.005 * m], False),
+                                          ring(pin, z, 0.005 * m, seg=12, hint=y)]
                 else:
                     r = 0.011 if name.startswith("thumb") else 0.009
                     self.widgets[ctrl] = [ring(h.lerp(t, 0.5), y, r * m, seg=12, hint=z)]
@@ -550,15 +644,24 @@ class Builder:
             "toe": ("ball_" + s,),
         }
 
-        # FK.
+        # FK: boxes around each segment; the foot box spans the foot's width and ankle height.
         parent = "CTRL_hips"
         for part in ("thigh", "calf", "foot", "toe"):
             h, t, r = geo[part]
             ctrl = "CTRL_%s_fk_%s" % (part, s)
             self.bone(ctrl, h, t, parent=parent, roll_to=r, coll="leg_fk_" + s, color=s,
                       connect=part != "thigh", lock_loc=True, rot='XYZ' if part == "toe" else 'QUATERNION')
-            self.limb_ring(ctrl, rings[part], h, t, t=0.3 if part == "foot" else 0.5, scale=1.3,
-                           hint=F.up if part in ("foot", "toe") else None)
+            if part == "foot":
+                y = (B - A).normalized()
+                z = perp(F.up, y)
+                half_h = (F.world_z(A) - gz) / F.mw.to_scale().x * 0.6
+                c = A.lerp(B, 0.5) + fside * ((lat[0] + lat[-1]) / 2)
+                self.widgets[ctrl] = box(c, y.cross(z), y, z, (lat[-1] - lat[0]) / 2 * 1.1,
+                                         (B - A).length * 0.6, half_h)
+            else:
+                # The thigh's skin weights reach into the buttock, so it gets a tighter fit.
+                scale, span = {"thigh": (0.8, 0.7), "calf": (0.95, 0.7), "toe": (1.4, 0.9)}[part]
+                self.limb_box(ctrl, rings[part], h, t, r, scale=scale, span=span)
             parent = ctrl
 
         # IK chain.
@@ -572,28 +675,32 @@ class Builder:
         self.bone(foot_ik, A, A + fdir * 0.12 * m, parent="CTRL_root", roll_to=F.up, coll=coll, color=s)
         pad = 0.012 * m
         lift = F.up * 0.002 * m
-        corners = [
-            F.ground(A + fdir * (-back - pad) + fside * (lat[0] - pad), gz) + lift,
-            F.ground(A + fdir * (-back - pad) + fside * (lat[-1] + pad), gz) + lift,
-            F.ground(B + fdir * (front + pad) + fside * (lat[-1] + pad), gz) + lift,
-            F.ground(B + fdir * (front + pad) + fside * (lat[0] - pad), gz) + lift,
+        # Rounded plate under the foot with an arrow pointing forward.
+        f0, f1 = -back - pad, (B - A).dot(fdir) + front + pad
+        plate_c = F.ground(A + fdir * ((f0 + f1) / 2) + fside * ((lat[0] + lat[-1]) / 2), gz) + lift
+        half_len, half_w = (f1 - f0) / 2, (lat[-1] - lat[0]) / 2 + pad
+        self.widgets[foot_ik] = [
+            superellipse(plate_c, fdir, fside, half_len, half_w, n=5.0),
+            arrowhead(plate_c + fdir * (half_len + 0.05 * m), fdir, fside, 0.035 * m),
         ]
-        self.widgets[foot_ik] = [(corners, True)]
 
         heel_c = "CTRL_heel_" + s
         self.bone(heel_c, heel, heel - fdir * 0.05 * m, parent=foot_ik, roll_to=F.up, coll=coll, color=s,
                   rot='XYZ', lock_loc=True)
-        self.widgets[heel_c] = [arc(heel + F.up * 0.03 * m, fdir, F.up, 0.03 * m, math.pi / 2, 3 * math.pi / 2, seg=12)]
+        self.widgets[heel_c] = curved_arrow(heel + F.up * 0.035 * m, fdir, F.up, 0.035 * m,
+                                            math.pi * 0.6, math.pi * 1.4, 0.012 * m, seg=12)
 
         tip_c = "CTRL_toe_tip_" + s
         self.bone(tip_c, toe, toe - fdir * 0.04 * m, parent=heel_c, roll_to=F.up, coll=coll, color=s,
                   rot='XYZ', lock_loc=True)
-        self.widgets[tip_c] = [arc(toe + F.up * 0.025 * m, fdir, F.up, 0.025 * m, -math.pi / 2, math.pi / 2, seg=12)]
+        self.widgets[tip_c] = curved_arrow(toe + F.up * 0.03 * m, fdir, F.up, 0.03 * m,
+                                           -math.pi * 0.4, math.pi * 0.4, 0.011 * m, seg=12)
 
         ball_c = "CTRL_ball_roll_" + s
         self.bone(ball_c, B, B - fdir * 0.06 * m, parent=tip_c, roll_to=F.up, coll=coll, color=s,
                   rot='XYZ', lock_loc=True)
-        self.widgets[ball_c] = [arc(B, fdir, F.up, 0.05 * m, 0.0, math.pi, seg=16)]
+        # Roll cursor: a crosshair standing above the ball, in the foot's rolling plane.
+        self.widgets[ball_c] = crosshair(B + F.up * 0.075 * m, fdir, F.up, 0.022 * m)
 
         ankle = "MCH_ankle_ik_" + s
         self.bone(ankle, A, A + F.up * 0.05 * m, parent=ball_c)
@@ -606,7 +713,7 @@ class Builder:
         knee_c = "CTRL_knee_pole_" + s
         p = K + knee * 0.5 * m
         self.bone(knee_c, p, p + knee * 0.05 * m, parent="CTRL_root", roll_to=F.up, coll=coll, color=s)
-        self.widgets[knee_c] = diamond(p, 0.035 * m, F)
+        self.widgets[knee_c] = gimbal(p, 0.035 * m, F)
         self.space_switch(knee_c, "MCH_knee_pole_%s_" + s, foot_ik, "pole_follow_leg_" + s, 'COPY_TRANSFORMS')
         self.ik.append(("MCH_calf_ik_" + s, ankle, knee_c))
 
@@ -656,7 +763,9 @@ class Builder:
         jd = (j2 - j1).normalized()
         self.bone("CTRL_jaw", j1, j2 + jd * 0.02 * m, parent="CTRL_head", roll_to=F.up, coll="face",
                   color="face", rot='XYZ')
-        self.widgets["CTRL_jaw"] = [arc(j2 - F.up * 0.01 * m, F.left, F.fwd, 0.035 * m, 0.0, math.pi, seg=16)]
+        jc = j2 - F.up * 0.01 * m
+        self.widgets["CTRL_jaw"] = [arc(jc, F.left, F.fwd, 0.035 * m, 0.0, math.pi, seg=16),
+                                    arrowhead(jc + F.fwd * 0.035 * m - F.up * 0.018 * m, -F.up, F.left, 0.008 * m)]
         self.tgt("jaw_01", "CTRL_jaw")
 
         tongue = ("tongue_1", "tongue_2", "tongue_3", "tongue_4")
@@ -675,12 +784,12 @@ class Builder:
         mid = el.lerp(er, 0.5) + F.fwd * dist
         self.bone("CTRL_eyes", mid, mid + F.fwd * 0.04 * m, parent="CTRL_head", roll_to=F.up, coll="face",
                   color="face")
-        self.widgets["CTRL_eyes"] = [ellipse(mid, F.left, F.up, (el - er).length / 2 + 0.03 * m, 0.022 * m)]
+        self.widgets["CTRL_eyes"] = [stadium(mid, F.left, F.up, (el - er).length / 2, 0.024 * m)]
         for s, eye in (("l", el), ("r", er)):
             target = "CTRL_eye_target_" + s
             p = eye + F.fwd * dist
             self.bone(target, p, p + F.fwd * 0.03 * m, parent="CTRL_eyes", roll_to=F.up, coll="face", color=s)
-            self.widgets[target] = [arc(p, F.left, F.up, 0.012 * m, seg=16)]
+            self.widgets[target] = crosshair(p, F.left, F.up, 0.014 * m)
 
             aim = "MCH_eye_" + s
             self.bone(aim, eye, eye + F.fwd * 0.03 * m, parent="CTRL_head", roll_to=F.up)
@@ -689,7 +798,7 @@ class Builder:
 
             lid = "CTRL_eyelid_" + s
             self.bone(lid, eye, eye + F.fwd * 0.03 * m, parent="CTRL_head", roll_to=F.up, coll="face",
-                      color="face", rot='XYZ', lock_loc=True)
+                      color=s, rot='XYZ', lock_loc=True)
             self.widgets[lid] = [arc(eye + F.fwd * 0.022 * m, F.left, F.up, 0.017 * m, 0.0, math.pi, seg=12)]
             self.tgt("eye_%s_lid" % s, lid)
 
@@ -700,7 +809,7 @@ class Builder:
                 ctrl = "CTRL_" + name
                 self.bone(ctrl, h, h + F.fwd * 0.012 * m, parent=parent, roll_to=F.up, coll="face", color=s,
                           rot='XYZ')
-                self.widgets[ctrl] = [arc(h + F.fwd * 0.008 * m, F.left, F.up, 0.005 * m, seg=10)]
+                self.widgets[ctrl] = [ellipse(h + F.fwd * 0.008 * m, F.left, F.up, 0.008 * m, 0.0045 * m, seg=16)]
                 self.tgt(name, ctrl)
                 parent = ctrl
 
@@ -774,7 +883,9 @@ def setup_collections(arm, builder):
         bone = arm.data.bones[name]
         colls[meta["coll"]].assign(bone)
         if meta["color"]:
-            bone.color.palette = COLORS[meta["color"]]
+            bone.color.palette = 'CUSTOM'
+            colors = bone.color.custom
+            colors.normal, colors.select, colors.active = COLORS[meta["color"]]
         pb = arm.pose.bones[name]
         pb.rotation_mode = meta["rot"]
         pb.lock_location = (meta["lock_loc"],) * 3
@@ -800,7 +911,8 @@ def setup_widgets(arm, builder):
         pb = arm.pose.bones[name]
         pb.custom_shape = ob
         if hasattr(pb, "custom_shape_wire_width"):
-            pb.custom_shape_wire_width = 2.0
+            small = builder.meta[name]["coll"] in ("face", "fingers_l", "fingers_r")
+            pb.custom_shape_wire_width = WIRE_WIDTH_SMALL if small else WIRE_WIDTH
 
 
 def setup_switches(arm):
