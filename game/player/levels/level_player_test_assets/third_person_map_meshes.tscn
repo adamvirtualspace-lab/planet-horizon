@@ -1,0 +1,59 @@
+[gd_scene format=4 uid="uid://cripmxpexcdgp"]
+
+[ext_resource type="PackedScene" uid="uid://5xfqec7svgwf" path="res://game/player/levels/level_player_test_assets/ThirdPersonMap_Meshes.fbx" id="1_xnev8"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ejett"]
+resource_name = "MI_PrototypeGrid_TopDark"
+vertex_color_use_as_albedo = true
+albedo_color = Color(0.50196075, 0.50196075, 0.50196075, 1)
+emission_enabled = true
+
+[sub_resource type="ArrayMesh" id="ArrayMesh_n085n"]
+_surfaces = [{
+"aabb": AABB(0, -1, 0, 1, 1, 1),
+"format": 34359742465,
+"index_count": 36,
+"index_data": PackedByteArray("AAABAAIAAwAAAAIAAAAEAAEABAAAAAMABQABAAQABgAEAAMABQAEAAYABwADAAIAAQAHAAIABwAGAAMABQAHAAEABwAFAAYA"),
+"name": "MI_PrototypeGrid_TopDark",
+"primitive": 3,
+"uv_scale": Vector4(0, 0, 0, 0),
+"vertex_count": 8,
+"vertex_data": PackedByteArray("AAAAAAAAgL8AAAAAAAAAAAAAgL8AAIA/AACAPwAAgL8AAIA/AACAPwAAgL8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAACAPwAAAAAAAIA/")
+}]
+blend_shape_mode = 0
+
+[sub_resource type="ArrayMesh" id="ArrayMesh_t0gkx"]
+resource_name = "SM_Cube"
+_surfaces = [{
+"aabb": AABB(0, -1, 0, 1, 1, 1),
+"attribute_data": PackedByteArray("AICIPABgJj8AICc/AMAiPwCAiDwAILM+ACAnPwBAqT4AIKI+ACCzPgBgdT8AQKk+ACCiPgBgJj8AYHU/AMAiPwCAiDwAoHs/ACAEPACAoD4AIKI+AOAuPwCAoD4AIAQ8ACCiPgCgez8AgKA+AICgPgCAiDwA4C4/ACAEPAAgBDwAILM+AGAmPwBAqT4AgKA+ACCzPgAgsz4AQKk+ACAEPABgJj8AILM+AMAiPwAgBDwAYCY/AGAmPwDAIj8AgKA+ACCzPgCgez8AICc/AICgPgAgsz4A4C4/ACAnPwAgBDwAYCY/AOAuPwBgdT8AIAQ8AGAmPwCgez8AYHU/AICgPgAgoj4AgIg8AICgPgBAqT4AgIg8ACCiPgAgBDwAwCI/AICIPACAiDwAIAQ8AECpPgAgoj4AIKI+AICgPgDAIj8AYCY/ACCiPgDAIj8AwCI/ACCzPgAgoj4AQKk+AMAiPwBgJj8AgIg8AMAiPwBAqT4AILM+AICIPABAqT4AQKk+"),
+"format": 34359742519,
+"index_count": 36,
+"index_data": PackedByteArray("AAABAAIAAwAAAAIABAAFAAYABwAFAAQACAAJAAoACwAIAAoADAANAA4ADwAMAA4AEAARABIAEAATABEAFAAVABYAFwAWABUA"),
+"material": SubResource("StandardMaterial3D_ejett"),
+"name": "MI_PrototypeGrid_TopDark",
+"primitive": 3,
+"uv_scale": Vector4(0, 0, 0, 0),
+"vertex_count": 24,
+"vertex_data": PackedByteArray("AAAAAAAAgL8AAAAAAAAAAAAAgL8AAIA/AACAPwAAgL8AAIA/AACAPwAAgL8AAAAAAAAAAAAAgL8AAIA/AACAPwAAAAAAAIA/AACAPwAAgL8AAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgL8AAAAAAACAPwAAgL8AAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAIA/AACAPwAAgL8AAAAAAACAPwAAgL8AAIA/AACAPwAAAAAAAAAAAAAAAAAAgL8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAgL8AAIA/AAAAAAAAAAAAAIA//38AAP///7//fwAA////v/9/AAD///+//38AAP///7//f/9/////v/9//3////+//3//f////7//f/9/////v/9///////+//3///////7//f///////v/9///////+//////////7//////////v/////////+//////////7////9//3///////3//f///////f/9///////9//3///wAA/3//fwCAAAD/f/9/AIAAAP9//38AgAAA/3//fwCA")
+}]
+blend_shape_mode = 0
+shadow_mesh = SubResource("ArrayMesh_n085n")
+
+[node name="ThirdPersonMap_Meshes" unique_id=568365014 instance=ExtResource("1_xnev8")]
+
+[node name="SM_Cube6" parent="." index="5" unique_id=769052169]
+transform = Transform3D(0, 1, 0, 0, 0, 4, 54.68807, 0, 0, 30, -2.842171e-16, -15.867928)
+
+[node name="SM_Cube13" type="MeshInstance3D" parent="." index="11" unique_id=1322943017]
+transform = Transform3D(38.021675, 0, 0, 0, 0, 0.4999997, 0, -48.85477, 0, -7.2360067, -0.5, -11.617743)
+mesh = SubResource("ArrayMesh_t0gkx")
+
+[node name="SM_Cube5" parent="." index="15" unique_id=200731000]
+transform = Transform3D(0, 1, 0, 0, 0, 4, 46.44251, 0, 0, -6.8181067, -2.842171e-16, -10.748009)
+
+[node name="SM_Cube2" parent="." index="20" unique_id=934699469]
+transform = Transform3D(41.899776, 0, 0, 0, 0, 4, 0, -1, 0, -8.955557, 0, -11.730532)
+
+[node name="SM_Cube3" parent="." index="21" unique_id=488509227]
+transform = Transform3D(44.00074, 0, 0, 0, 0, 4, 0, -1, 0, -9.930027, -4.5474734e-15, 34)

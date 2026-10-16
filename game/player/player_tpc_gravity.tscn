@@ -1,0 +1,64 @@
+[gd_scene format=3 uid="uid://b0d7mftelcla2"]
+
+[ext_resource type="Script" uid="uid://bw68l1b6j07tv" path="res://game/player/player_tpc_gravity_scripts/player_tpc_gravity.gd" id="1_uab0m"]
+[ext_resource type="Script" uid="uid://jsh2420dne1a" path="res://game/player/player_tpc_gravity_scripts/cam_pivot_manager.gd" id="2_p4sqb"]
+
+[sub_resource type="PhysicsMaterial" id="PhysicsMaterial_p4sqb"]
+friction = 0.2
+rough = true
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_tplf6"]
+radius = 0.3
+height = 1.7
+
+[sub_resource type="CapsuleMesh" id="CapsuleMesh_6n2mv"]
+radius = 0.3
+height = 1.7
+
+[sub_resource type="SphereShape3D" id="SphereShape3D_p4sqb"]
+radius = 0.2
+
+[sub_resource type="SphereShape3D" id="SphereShape3D_a43dj"]
+radius = 0.1
+
+[node name="player_root" type="RigidBody3D" unique_id=703631089]
+axis_lock_angular_x = true
+axis_lock_angular_y = true
+axis_lock_angular_z = true
+physics_material_override = SubResource("PhysicsMaterial_p4sqb")
+script = ExtResource("1_uab0m")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=1371498710]
+shape = SubResource("CapsuleShape3D_tplf6")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="." unique_id=1589865025]
+mesh = SubResource("CapsuleMesh_6n2mv")
+
+[node name="CamPivotManager" type="Node3D" parent="." unique_id=1214612256]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 0)
+script = ExtResource("2_p4sqb")
+
+[node name="CamPivot_RotateLeftRight" type="Node3D" parent="CamPivotManager" unique_id=358174792]
+
+[node name="CamPivot_RotateUpDown" type="Node3D" parent="CamPivotManager/CamPivot_RotateLeftRight" unique_id=16358961]
+
+[node name="SpringArm3D_Backward" type="SpringArm3D" parent="CamPivotManager/CamPivot_RotateLeftRight/CamPivot_RotateUpDown" unique_id=1998896320]
+shape = SubResource("SphereShape3D_p4sqb")
+spring_length = 2.0
+margin = 0.3
+
+[node name="SpringArm3D_Sideway" type="SpringArm3D" parent="CamPivotManager/CamPivot_RotateLeftRight/CamPivot_RotateUpDown/SpringArm3D_Backward" unique_id=1826135861]
+transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, 0, 0, 2)
+shape = SubResource("SphereShape3D_p4sqb")
+spring_length = 0.5
+margin = 0.3
+
+[node name="Camera3D" type="Camera3D" parent="CamPivotManager/CamPivot_RotateLeftRight/CamPivot_RotateUpDown/SpringArm3D_Backward/SpringArm3D_Sideway" unique_id=1380393993]
+transform = Transform3D(-4.371139e-08, 0, -1, 0, 1, 0, 1, 0, -4.371139e-08, 0, 0, 0.5)
+fov = 90.0
+
+[node name="FloorTrigger_Area3D" type="Area3D" parent="." unique_id=1725819792]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.8268776, 0)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="FloorTrigger_Area3D" unique_id=1327830150]
+shape = SubResource("SphereShape3D_a43dj")
