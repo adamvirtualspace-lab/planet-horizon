@@ -459,7 +459,9 @@ class Builder:
                   coll="spine", color="c", lock_loc=True)
         # Ring around the skull plus a halo above the crown.
         crown = head + F.up * (self.top(("head", "face"), head, 0.16) + 0.025 * m)
-        self.widgets["CTRL_head"] = [self.body_ellipse(("face",), head + F.up * 0.06 * m, 0.02 * m, 1.3, 1.3, n=3.0),
+        # The female skin weights the skull to "face", the male one to "head".
+        self.widgets["CTRL_head"] = [self.body_ellipse(("face", "head"), head + F.up * 0.06 * m, 0.02 * m, 1.3, 1.3,
+                                                       n=3.0),
                                      ring(crown, F.up, 0.08 * m, seg=32, hint=F.left)]
         self.space_switch("CTRL_head", "MCH_head_%s", "CTRL_torso", "head_follow")
         self.tgt("head", "CTRL_head")
@@ -1007,6 +1009,51 @@ SPACES = (
     ("pole_follow_leg_r", "Knee Pole R", "Root / Foot"),
 )
 
+# Bone collection toggles, one labelled row per body region: (label, ((collection, button text), ...)).
+VIS_ROWS = (
+    ("Face", (("Face", "Face"),)),
+    ("Body", (("Root & Torso", "Root & Torso"), ("Spine & Head", "Spine & Head"))),
+    ("Arms", (("Arm.R IK", "R IK"), ("Arm.R FK", "R FK"), ("Arm.L IK", "L IK"), ("Arm.L FK", "L FK"))),
+    ("Fingers", (("Fingers.R", "R"), ("Fingers.L", "L"))),
+    ("Legs", (("Leg.R IK", "R IK"), ("Leg.R FK", "R FK"), ("Leg.L IK", "L IK"), ("Leg.L FK", "L FK"))),
+    ("Rig", (("MCH", "MCH"), ("DEF (UE5)", "DEF"))),
+)
+
+# IK/FK switch -> (IK collection, FK collection). While a slider moves, a chain's
+# controls show whenever that chain has any influence: the IK set above 0, the
+# FK set below 1. Visibility is only touched when a switch value changes, so the
+# toggles above still work by hand in between.
+SWITCH_VIS = {
+    "ik_arm_l": ("Arm.L IK", "Arm.L FK"),
+    "ik_arm_r": ("Arm.R IK", "Arm.R FK"),
+    "ik_leg_l": ("Leg.L IK", "Leg.L FK"),
+    "ik_leg_r": ("Leg.R IK", "Leg.R FK"),
+}
+_last_switch = {}
+
+
+def sync_switch_visibility(ob, force=False):
+    colls = ob.data.collections_all
+    for prop, (ik_name, fk_name) in SWITCH_VIS.items():
+        value = ob.get(prop)
+        key = (ob.name, prop)
+        if value is None or (not force and _last_switch.get(key) == value):
+            continue
+        first = key not in _last_switch
+        _last_switch[key] = value
+        if first and not force:
+            continue  # Remember the starting value; never override visibility on load.
+        for name, visible in ((ik_name, value > 0.0), (fk_name, value < 1.0)):
+            coll = colls.get(name)
+            if coll is not None and coll.is_visible != visible:
+                coll.is_visible = visible
+
+
+def basefemale_switch_vis(*_args):
+    for ob in bpy.data.objects:
+        if ob.type == 'ARMATURE' and "basefemale_rig" in ob:
+            sync_switch_visibility(ob)
+
 
 def _rot_path(pb):
     return {"QUATERNION": "rotation_quaternion", "AXIS_ANGLE": "rotation_axis_angle"}.get(
@@ -1136,14 +1183,25 @@ class BASEFEMALE_PT_rig(bpy.types.Panel):
             for to_fk, text in ((True, "FK"), (False, "IK")):
                 op = row.operator("basefemale.snap_ikfk", text=text)
                 op.limb, op.side, op.to_fk = limb, side, to_fk
-        layout.label(text="Parent Spaces  (0 / 1)")
+        # Collapsible in place (closed by default); Blender remembers the open state per panel.
+        header, body = layout.panel("basefemale_parent_spaces", default_closed=True)
+        header.label(text="Parent Spaces  (0 / 1)")
+        if body is not None:
+            col = body.column(align=True)
+            for key, label, spaces in SPACES:
+                col.prop(ob, '["%s"]' % key, text="%s: %s" % (label, spaces), slider=True)
+        layout.label(text="Controller Vis")
         col = layout.column(align=True)
-        for key, label, spaces in SPACES:
-            col.prop(ob, '["%s"]' % key, text="%s: %s" % (label, spaces), slider=True)
-        layout.label(text="Bone Collections")
-        grid = layout.grid_flow(columns=2, align=True)
-        for coll in ob.data.collections_all:
-            grid.prop(coll, "is_visible", text=coll.name, toggle=True)
+        colls = ob.data.collections_all
+        for label, buttons in VIS_ROWS:
+            split = col.split(factor=0.25, align=True)
+            split.label(text=label)
+            row = split.row(align=True)
+            for name, text in buttons:
+                coll = colls.get(name)
+                if coll is not None:
+                    row.prop(coll, "is_visible", text=text, toggle=True)
+            col.separator(factor=0.5)
 
 
 for _cls in (BASEFEMALE_OT_snap_ikfk, BASEFEMALE_PT_rig):
@@ -1151,22 +1209,61 @@ for _cls in (BASEFEMALE_OT_snap_ikfk, BASEFEMALE_PT_rig):
     if _old is not None:
         bpy.utils.unregister_class(_old)
     bpy.utils.register_class(_cls)
+
+# Handlers run on every edit (slider drags, snaps) and on frame changes (keyed switches).
+for _handlers in (bpy.app.handlers.depsgraph_update_post, bpy.app.handlers.frame_change_post):
+    for _h in [h for h in _handlers if getattr(h, "__name__", "") == "basefemale_switch_vis"]:
+        _handlers.remove(_h)
+    _handlers.append(basefemale_switch_vis)
 '''
 
 
-def setup_ui():
+def setup_ui(arm):
     text = bpy.data.texts.get(UI_TEXT) or bpy.data.texts.new(UI_TEXT)
     text.from_string(UI_CODE)
     text.use_module = True
-    exec(compile(UI_CODE, UI_TEXT, 'exec'), {"__name__": "__main__"})
+    ns = {"__name__": "__main__"}
+    exec(compile(UI_CODE, UI_TEXT, 'exec'), ns)
+    # The rebuild recreated the collections with default visibility; match the switches instead.
+    ns["sync_switch_visibility"](arm, force=True)
 
 
 # ---------------------------------------------------------------------------
+# Keeping the animator's pose across a rebuild
+
+POSE_CHANNELS = ("location", "rotation_quaternion", "rotation_euler", "rotation_axis_angle", "scale")
+
+
+def save_pose(arm):
+    """Transform channels of every control that is off its rest pose."""
+    saved = {}
+    for pb in arm.pose.bones:
+        basis = pb.matrix_basis
+        posed = any(abs(basis[i][j] - (i == j)) > 1e-6 for i in range(4) for j in range(4))
+        if pb.name.startswith("CTRL_") and posed:
+            saved[pb.name] = {ch: tuple(getattr(pb, ch)) for ch in POSE_CHANNELS}
+    return saved
+
+
+def restore_pose(arm, saved):
+    """Put saved channels back on controls that still exist; returns their names."""
+    restored = []
+    for name, channels in saved.items():
+        pb = arm.pose.bones.get(name)
+        if pb is None:
+            continue
+        for ch, value in channels.items():
+            setattr(pb, ch, value)
+        restored.append(name)
+    bpy.context.view_layer.update()
+    return restored
+
 
 def main():
     arm = bpy.data.objects[ARMATURE]
     body = bpy.data.objects[BODY]
 
+    saved = save_pose(arm)
     cleanup(arm)
 
     frame = Frame(arm)
@@ -1190,7 +1287,7 @@ def main():
     arm.show_in_front = True
     if hasattr(arm.data, "show_bone_colors"):
         arm.data.show_bone_colors = True
-    setup_ui()
+    setup_ui(arm)
     set_mode(arm, 'POSE')
 
     report = {
@@ -1200,6 +1297,7 @@ def main():
         "pole_angles": poles,
         "rest_error": rest_error(arm),
     }
+    report["restored_poses"] = restore_pose(arm, saved)
     print("BaseFemale control rig:", report)
     return report
 
